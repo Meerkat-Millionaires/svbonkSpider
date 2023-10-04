@@ -74,7 +74,7 @@ export const runOne = async ()=> {
                 const txId = result.txId  
                 await connection.confirmTransaction(txId, "confirmed")
                 } catch (err){
-                    
+
                 }
             }
         }
@@ -90,4 +90,4 @@ export const runService = async (milleseconds) => {
     setInterval(runOne, milleseconds);
 }
 
-// runOne();
+runOne();
