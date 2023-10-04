@@ -1,17 +1,19 @@
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, Keypair, clusterApiUrl, Connection, SystemProgram, TransactionInstruction, Transaction } from '@solana/web3.js'
 import { Account, TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAccount } from '@solana/spl-token';
+import NodeWallet from "@coral-xyz/anchor/dist/cjs/nodewallet";
+import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 require('dotenv').config();
-import fs from 'fs';
+const fs = require('fs');
 
-anchor.setProvider(anchor.AnchorProvider.env());
 
-const idl = JSON.parse(fs.readFileSync("./src/idl.json", "utf8"));
+const idl = JSON.parse(fs.readFileSync("./spider/src/idl.json", "utf8"));
 const programId = new anchor.web3.PublicKey('SVBzw5fZRY9iNRwy5JczFYni2X9aDqur6HhAP1CXX7T');
-const program = new anchor.Program(idl, programId);
-const token = new PublicKey('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'); 
 let connection = new Connection(process.env.ANCHOR_PROVIDER_URL as string)
-
+const user = Keypair.fromSecretKey(bs58.decode(process.env.ANCHOR_WALLET as string));
+const provider = new anchor.AnchorProvider(connection, new NodeWallet(user), {})
+const program = new anchor.Program(idl, programId, provider);
+const token = new PublicKey('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'); 
 const CONTRACT_SEED = 'contract';
 const GAME_USER_SEED = 'gameuser';
 const VERSION = 1;
@@ -35,9 +37,44 @@ const buy = async (user: Keypair, gameIndex: number, qty: number) => {
         true
     );
 
-    const latestBlockhash = await connection.getLatestBlockhash('finalized');
+    let latestBlockhash = await connection.getLatestBlockhash('finalized');
     const atas = await connection.getTokenAccountsByOwner(user.publicKey, { mint: token });
     const ata = atas.value[0].pubkey;
+    for (var i = 0; i < gameIndex; i++) {
+        try {
+            
+    const gameUserPdaAddress = findGameUserPdaAddress(GAME_USER_SEED, i, user.publicKey);
+    const contractTokenAccount:Account = await getOrCreateAssociatedTokenAccount(
+        connection, 
+        user, 
+        token, 
+        contractPdaAddress,
+        true
+    );
+    const balance = await (await connection.getTokenAccountBalance(ata)).value.uiAmount;
+    if (balance > 0){
+        const tx = await program.methods
+        .claim(i,  VERSION)
+        .accounts(
+            {
+                authority: user.publicKey,
+                contract: contractPdaAddress,
+                gameUser: gameUserPdaAddress,
+                contractTokenAccount: contractTokenAccount.address,
+
+                claimTokenAccount: ata,
+                tokenProgram: TOKEN_PROGRAM_ID,
+                systemProgram: SystemProgram.programId,
+
+            })
+        .rpc();
+        console.log(tx)
+        }
+    }
+        catch (err){
+console.log(err)
+        }
+    }
     const ix = await program.methods
         .buy(gameIndex, qty, VERSION)
         .accounts(
@@ -85,7 +122,8 @@ const buy = async (user: Keypair, gameIndex: number, qty: number) => {
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
     });
 
-    console.log(tx);
+    console.log(sig);
+    return sig 
 }
 
 const findPdaAddressByStringSeeds = (seeds:string[], version: Buffer) => {
